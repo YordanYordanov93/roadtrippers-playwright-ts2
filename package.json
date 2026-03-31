@@ -1,0 +1,45 @@
+{
+  "name": "roadtrippers-playwright-askui",
+  "version": "1.0.0",
+  "description": "Playwright + TypeScript + AskUI + Cucumber BDD tests for Roadtrippers trip planning",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:happy": "playwright test --grep @happy",
+    "test:edge": "playwright test --grep @edge",
+    "test:error": "playwright test --grep @error",
+    "test:smoke": "playwright test --grep @smoke",
+    "report": "playwright show-report playwright-report",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "type-check": "tsc --noEmit",
+    "bdd": "cucumber-js",
+    "bdd:smoke": "cucumber-js --tags @smoke",
+    "bdd:happy": "cucumber-js --tags @happy",
+    "bdd:edge": "cucumber-js --tags @edge",
+    "bdd:error": "cucumber-js --tags @error",
+    "bdd:headed": "HEADLESS=false cucumber-js",
+    "bdd:report": "npx allure generate reports/allure-results --clean -o reports/allure-report && npx allure open reports/allure-report",
+    "bdd:dry-run": "cucumber-js --dry-run",
+    "bdd:debug": "PWDEBUG=1 cucumber-js"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^10.3.1",
+    "@cucumber/pretty-formatter": "^1.0.1",
+    "@playwright/test": "^1.41.0",
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "allure-commandline": "^2.29.0",
+    "allure-cucumberjs": "^2.15.1",
+    "dotenv": "^16.4.1",
+    "eslint": "^8.56.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "askui": "^0.20.0"
+  }
+}

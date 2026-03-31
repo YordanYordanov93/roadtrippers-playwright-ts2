@@ -1,0 +1,14 @@
+.env.local
+.env
+
+node_modules/
+dist/
+
+playwright-report/
+test-results/
+reports/
+
+config/state/auth.json
+
+.idea/
+*.log
