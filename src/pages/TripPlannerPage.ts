@@ -174,8 +174,8 @@ export class TripPlannerPage extends BasePage {
     // Wait for suggestions to appear
     await this.suggestionList.waitFor({ state: 'visible', timeout: 10_000 });
 
-    // Small stabilisation wait — autocomplete can reorder briefly
-    await this.page.waitForTimeout(500);
+    // Wait for the suggestion list to stabilise (at least 1 item rendered)
+    await this.suggestionItems.first().waitFor({ state: 'visible', timeout: 5_000 });
 
     const items = this.suggestionItems;
     const count = await items.count();
@@ -185,8 +185,8 @@ export class TripPlannerPage extends BasePage {
 
     await items.nth(index).click();
 
-    // Wait for the waypoint to appear in the list
-    await this.page.waitForTimeout(800);
+    // Wait for the waypoint to be committed to the list
+    await this.waypointItems.first().waitFor({ state: 'visible', timeout: 10_000 });
     return this;
   }
 
@@ -221,8 +221,10 @@ export class TripPlannerPage extends BasePage {
     await item.hover();
 
     const removeBtn = item.getByRole('button', { name: /remove|delete|×|close/i }).first();
+    const countBefore = await this.waypointItems.count();
     await removeBtn.click();
-    await this.page.waitForTimeout(500);
+    // Wait for the DOM to reflect the removal
+    await expect(this.waypointItems).toHaveCount(countBefore - 1, { timeout: 5_000 });
     return this;
   }
 

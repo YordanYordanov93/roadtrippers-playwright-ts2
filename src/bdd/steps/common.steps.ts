@@ -64,11 +64,20 @@ Then('I should be on the Roadtrippers map', async function (this: RoadtrippersWo
 // ─── Timing ───────────────────────────────────────────────────────────────────
 
 When('I wait {int} seconds for search to respond', async function (this: RoadtrippersWorld, seconds: number) {
-  await this.page.waitForTimeout(seconds * 1_000);
+  // Prefer waiting for the suggestion list rather than a fixed duration,
+  // but honour the caller's intent as a maximum timeout.
+  await Promise.race([
+    this.pages.tripPlannerPage.suggestionList.waitFor({ state: 'visible', timeout: seconds * 1_000 }),
+    this.page.waitForLoadState('networkidle', { timeout: seconds * 1_000 }),
+  ]).catch(() => {}); // timed out without a match — let the next step assert
 });
 
 When('I wait for autocomplete to respond', async function (this: RoadtrippersWorld) {
-  await this.page.waitForTimeout(2_000);
+  // Wait for the suggestion dropdown to appear (or a network idle signal)
+  await Promise.race([
+    this.pages.tripPlannerPage.suggestionList.waitFor({ state: 'visible', timeout: 5_000 }),
+    this.page.waitForLoadState('networkidle', { timeout: 5_000 }),
+  ]).catch(() => {}); // non-fatal — the next assertion step will validate presence
 });
 
 When('I click the {string} tab', async function (this: RoadtrippersWorld, tabName: string) {

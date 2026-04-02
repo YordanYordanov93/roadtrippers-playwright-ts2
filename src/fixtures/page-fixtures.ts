@@ -52,11 +52,7 @@ export const test = base.extend<RoadtrippersFixtures>({
     // storageState is already applied via playwright.config.ts
     // This fixture just confirms auth state is valid
     await page.goto('/');
-    await page.waitForFunction(
-      () => document.querySelector('canvas.mapboxgl-canvas') !== null,
-      undefined,
-      { timeout: 20_000 }
-    );
+    await page.locator('canvas.mapboxgl-canvas').waitFor({ state: 'visible', timeout: 20_000 });
     await use(page);
   },
 });

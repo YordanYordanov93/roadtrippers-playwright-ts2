@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { test as setup } from '@playwright/test';
+import { test as setup, expect } from '@playwright/test';
 import * as fs   from 'fs';
 import * as path from 'path';
 import { validCredentials } from '../fixtures/test-data';
@@ -35,39 +35,49 @@ setup('authenticate and save state', async ({ page }) => {
       timeout: 30_000,
     });
 
-    await page.waitForLoadState('networkidle').catch(() => null);
-    await page.locator('input[type="text"], input[type="email"]').first()
-      .waitFor({ state: 'visible', timeout: 20_000 });
+    // Wait for the page to reach a stable interactive state
+    await page.waitForLoadState('domcontentloaded');
+    const emailInput = page.locator('input[type="text"], input[type="email"]').first();
+    await emailInput.waitFor({ state: 'visible', timeout: 20_000 });
 
     await page.evaluate(() => {
       document.getElementById('onetrust-consent-sdk')?.remove();
       document.getElementById('gist-overlay')?.remove();
     }).catch(() => {});
 
+    // Wait for reCAPTCHA iframe to be present (or skip if absent)
     console.log('   ⏳ Waiting for reCAPTCHA initialization...');
-    await page.waitForTimeout(3_000);
+    await page
+      .locator('iframe[src*="recaptcha"], iframe[src*="recaptcha-test"]')
+      .first()
+      .waitFor({ state: 'attached', timeout: 5_000 })
+      .catch(() => console.log('   ℹ️  reCAPTCHA not detected (may not be required)'));
 
-    await page.waitForSelector('iframe[src*="recaptcha"], iframe[src*="recaptcha-test"]', {
-      timeout: 5_000,
-    }).catch(() => console.log('   ℹ️  reCAPTCHA not detected (may not be required)'));
-
-    await page.waitForTimeout(1_500);
+    // Ensure the password input is ready before typing
+    const passwordInput = page.locator('input[type="password"]').first();
+    await passwordInput.waitFor({ state: 'visible', timeout: 10_000 });
 
     console.log('   📝 Entering credentials...');
-    const emailInput    = page.locator('input[type="text"]:not([type="password"])').first();
-    const passwordInput = page.locator('input[type="password"]').first();
 
+    // Fill email — wait for value to be set before moving on
     await emailInput.fill(credentials.email);
-    await page.waitForTimeout(600);
+    await expect(emailInput).toHaveValue(credentials.email, { timeout: 5_000 });
+
+    // Fill password — wait for value to be set before moving on
     await passwordInput.fill(credentials.password);
-    await page.waitForTimeout(600);
+    await expect(passwordInput).not.toHaveValue('', { timeout: 5_000 });
 
     await page.evaluate(() => { document.getElementById('gist-overlay')?.remove(); }).catch(() => {});
-    await page.waitForTimeout(1_500);
 
     console.log('   🚀 Submitting login form...');
     await passwordInput.press('Enter');
-    await page.waitForTimeout(4_000);
+
+    // Wait for the page to react: either redirect away from /login or show an error
+    await Promise.race([
+      page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15_000 }),
+      page.locator('[role="alert"], .error-message, [class*="error"], [class*="Error"]')
+        .first().waitFor({ state: 'visible', timeout: 15_000 }),
+    ]).catch(() => {});
 
     const urlAfterEnter = page.url();
     console.log(`   URL after Enter key: ${urlAfterEnter}`);
@@ -75,7 +85,12 @@ setup('authenticate and save state', async ({ page }) => {
     if (urlAfterEnter.includes('/login')) {
       console.log('   Still on login page, trying force click...');
       await page.getByRole('button', { name: /log in/i }).first().click({ force: true });
-      await page.waitForTimeout(4_000);
+      // Wait again for redirect or error
+      await Promise.race([
+        page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15_000 }),
+        page.locator('[role="alert"], .error-message, [class*="error"], [class*="Error"]')
+          .first().waitFor({ state: 'visible', timeout: 15_000 }),
+      ]).catch(() => {});
       console.log(`   URL after force click: ${page.url()}`);
     }
 

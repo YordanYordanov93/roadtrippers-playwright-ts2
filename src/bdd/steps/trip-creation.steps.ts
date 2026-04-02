@@ -32,7 +32,12 @@ When('I attempt to create a trip', async function (this: RoadtrippersWorld) {
   try {
     await createBtn.waitFor({ state: 'visible', timeout: 5_000 });
     await createBtn.click();
-    await this.page.waitForTimeout(3_000);
+    // Wait for the trip planner panel or a login prompt to appear
+    await Promise.race([
+      this.pages.tripPlannerPage.addStopInput.waitFor({ state: 'visible', timeout: 8_000 }),
+      this.page.waitForURL(/\/login/, { timeout: 8_000 }),
+      this.page.getByRole('heading', { name: /log in|sign in/i }).waitFor({ state: 'visible', timeout: 8_000 }),
+    ]).catch(() => {});
   } catch {
     // Button not found — app may require auth before showing it.
     // Try clicking any visible "Create a trip" link or CTA instead.
@@ -40,7 +45,10 @@ When('I attempt to create a trip', async function (this: RoadtrippersWorld) {
     const fallbackVisible = await fallback.isVisible().catch(() => false);
     if (fallbackVisible) {
       await fallback.click();
-      await this.page.waitForTimeout(3_000);
+      await Promise.race([
+        this.pages.tripPlannerPage.addStopInput.waitFor({ state: 'visible', timeout: 8_000 }),
+        this.page.waitForURL(/\/login/, { timeout: 8_000 }),
+      ]).catch(() => {});
     }
     // Either way, record that we attempted
   }
@@ -104,7 +112,13 @@ When(
   'I click the save button without adding waypoints',
   async function (this: RoadtrippersWorld) {
     await this.pages.tripPlannerPage.saveButton.click();
-    await this.page.waitForTimeout(2_000);
+    // Wait for either a validation error or a successful save indicator
+    await Promise.race([
+      this.pages.tripPlannerPage.errorToast.waitFor({ state: 'visible', timeout: 6_000 }),
+      this.pages.tripPlannerPage.validationError.waitFor({ state: 'visible', timeout: 6_000 }),
+      this.pages.tripPlannerPage.successToast.waitFor({ state: 'visible', timeout: 6_000 }),
+      this.page.waitForURL(/\/trips\/\d+/, { timeout: 6_000 }),
+    ]).catch(() => {}); // remaining idle is also valid (e.g. button simply stays disabled)
   }
 );
 

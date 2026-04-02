@@ -37,7 +37,12 @@ When(
   async function (this: RoadtrippersWorld, buttonName: string) {
     if (buttonName === 'Log in') {
       await this.pages.loginPage.clickLogin();
-      await this.page.waitForTimeout(2_000);
+      // Wait for either a redirect away from login OR an error to appear
+      await Promise.race([
+        this.page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 8_000 }),
+        this.page.locator('[role="alert"], .error-message, [class*="error"], [class*="Error"]')
+          .first().waitFor({ state: 'visible', timeout: 8_000 }),
+      ]).catch(() => {}); // either outcome (redirect or error) is valid
     } else if (buttonName === 'Back to Map') {
       await this.pages.loginPage.clickBackToMap();
     } else {
@@ -51,7 +56,12 @@ When(
   async function (this: RoadtrippersWorld, buttonName: string) {
     if (buttonName === 'Log in') {
       await this.pages.loginPage.clickLogin();
-      await this.page.waitForTimeout(2_000);
+      // Wait for a brief navigation attempt or error response
+      await Promise.race([
+        this.page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 5_000 }),
+        this.page.locator('[role="alert"], [class*="error"], [class*="Error"]')
+          .first().waitFor({ state: 'visible', timeout: 5_000 }),
+      ]).catch(() => {}); // remaining on login page with no error is also valid
     }
   }
 );
@@ -110,8 +120,13 @@ Then('I should remain on the login page', async function (this: RoadtrippersWorl
 Then(
   'I should be prompted to log in',
   async function (this: RoadtrippersWorld) {
-    // Wait for any navigation or modal to appear
-    await this.page.waitForTimeout(3_000);
+    // Wait for navigation or a login prompt to appear
+    await Promise.race([
+      this.page.waitForURL(/\/login/, { timeout: 6_000 }),
+      this.page.getByRole('heading', { name: /log in|sign in/i }).waitFor({ state: 'visible', timeout: 6_000 }),
+      this.page.locator('[role="dialog"], [class*="modal"], [class*="Modal"]')
+        .filter({ hasText: /log in|sign in/i }).first().waitFor({ state: 'visible', timeout: 6_000 }),
+    ]).catch(() => {}); // If none appear we'll check below and fail the assertion properly
 
     const url = this.page.url();
 

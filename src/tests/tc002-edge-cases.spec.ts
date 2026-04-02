@@ -139,8 +139,12 @@ test.describe('TC-002: Edge Cases', () => {
 
       await tripPlannerPage.typeInSearchWithoutSelecting(invalidWaypoint.text);
 
-      // Wait briefly for autocomplete response
-      await page.waitForTimeout(2_000);
+      // Wait for the autocomplete service to respond — either the list appears
+      // (with 0 items) or the network goes idle, whichever comes first.
+      await Promise.race([
+        tripPlannerPage.suggestionList.waitFor({ state: 'visible', timeout: 5_000 }),
+        page.waitForLoadState('networkidle', { timeout: 5_000 }),
+      ]).catch(() => {});
 
       // Either: no suggestions at all, OR an "empty" / "no results" message
       const suggestionsVisible = await tripPlannerPage.suggestionList.isVisible();

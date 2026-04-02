@@ -69,11 +69,14 @@ export class LoginPage extends BasePage {
       }).catch(() => {
         // Page might be closed, silently ignore
       });
-      // Wait a bit for the DOM to settle
+      // Wait for the overlay to be removed from the DOM
       try {
-        await this.page.waitForTimeout(300);
+        await this.page
+          .locator('#gist-embed-message, #gist-overlay, iframe[src*="gist.build"]')
+          .first()
+          .waitFor({ state: 'detached', timeout: 2_000 });
       } catch {
-        // Ignore if timeout fails (page closed)
+        // Overlay already gone or page closed — continue
       }
     } catch {
       // Ignore all errors - overlay might not exist or page might be closed

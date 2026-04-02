@@ -1,0 +1,556 @@
+# GitLab CI/CD Pipeline for Playwright TypeScript Project
+# Place this file at: .gitlab-ci.yml in the root of your repository
+
+stages:
+  - quality
+  - setup
+  - test
+  - report
+  - notify
+
+variables:
+  NODE_VERSION: "18"
+  PLAYWRIGHT_VERSION: "1.41.0"
+  NPM_CACHE_POLICY: "fallback"
+  FF_USE_FASTZIP: "true"
+  TRANSFER_METER_FREQUENCY: "5s"
+  ARTIFACT_COMPRESSION_LEVEL: "fastest"
+
+cache:
+  key:
+    files:
+      - package-lock.json
+    prefix: "${CI_COMMIT_REF_SLUG}"
+  paths:
+    - node_modules/
+    - .playwright/
+  policy: pull-push
+
+# ============================================================================
+# STAGE 1: CODE QUALITY CHECKS
+# ============================================================================
+
+lint:
+  stage: quality
+  image: node:${NODE_VERSION}
+  
+  script:
+    - echo "Installing dependencies..."
+    - npm ci --cache /tmp/npm-cache
+    
+    - echo "Running ESLint..."
+    - npm run lint
+    
+    - echo "Running TypeScript compiler..."
+    - npm run type-check
+  
+  allow_failure: false
+  
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+    expire_in: 30 days
+  
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  
+  only:
+    - merge_requests
+    - main
+    - develop
+  
+  tags:
+    - docker
+
+# ============================================================================
+# STAGE 2: AUTHENTICATION SETUP
+# ============================================================================
+
+setup:auth:
+  stage: setup
+  image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-focal
+  
+  before_script:
+    - apt-get update && apt-get install -y node-${NODE_VERSION}
+    - npm ci --cache /tmp/npm-cache
+  
+  script:
+    - echo "Setting up authentication..."
+    - npx playwright test src/tests/auth.setup.ts
+  
+  artifacts:
+    paths:
+      - config/state/auth.json
+    expire_in: 1 day
+    when: on_success
+  
+  after_script:
+    - echo "Auth setup completed"
+  
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  
+  only:
+    - merge_requests
+    - main
+    - develop
+  
+  tags:
+    - docker
+  
+  variables:
+    TEST_EMAIL: $TEST_EMAIL
+    TEST_PASSWORD: $TEST_PASSWORD
+
+# ============================================================================
+# STAGE 3: PLAYWRIGHT TESTS
+# ============================================================================
+
+test:chromium:
+  stage: test
+  image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-focal
+  
+  before_script:
+    - apt-get update && apt-get install -y node-${NODE_VERSION}
+    - npm ci --cache /tmp/npm-cache
+    - npx playwright install chromium --with-deps
+  
+  dependencies:
+    - setup:auth
+  
+  script:
+    - echo "Running tests on Chromium..."
+    - npx playwright test --project=chromium --reporter=junit,html,json
+  
+  artifacts:
+    reports:
+      junit: test-results/results.xml
+    paths:
+      - playwright-report/
+      - test-results/
+      - results.json
+    expire_in: 14 days
+    when: always
+  
+  after_script:
+    - echo "Chromium tests completed"
+  
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  
+  only:
+    - merge_requests
+    - main
+    - develop
+  
+  tags:
+    - docker
+  
+  variables:
+    TEST_EMAIL: $TEST_EMAIL
+    TEST_PASSWORD: $TEST_PASSWORD
+
+test:firefox:
+  stage: test
+  image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-focal
+  
+  before_script:
+    - apt-get update && apt-get install -y node-${NODE_VERSION}
+    - npm ci --cache /tmp/npm-cache
+    - npx playwright install firefox --with-deps
+  
+  dependencies:
+    - setup:auth
+  
+  script:
+    - echo "Running tests on Firefox..."
+    - npx playwright test --project=firefox --reporter=junit,html,json
+  
+  artifacts:
+    reports:
+      junit: test-results/results.xml
+    paths:
+      - playwright-report/
+      - test-results/
+      - results.json
+    expire_in: 14 days
+    when: always
+  
+  after_script:
+    - echo "Firefox tests completed"
+  
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  
+  only:
+    - merge_requests
+    - main
+    - develop
+  
+  tags:
+    - docker
+  
+  variables:
+    TEST_EMAIL: $TEST_EMAIL
+    TEST_PASSWORD: $TEST_PASSWORD
+
+test:webkit:
+  stage: test
+  image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-focal
+  
+  before_script:
+    - apt-get update && apt-get install -y node-${NODE_VERSION}
+    - npm ci --cache /tmp/npm-cache
+    - npx playwright install webkit --with-deps
+  
+  dependencies:
+    - setup:auth
+  
+  script:
+    - echo "Running tests on WebKit..."
+    - npx playwright test --project=webkit --reporter=junit,html,json
+  
+  artifacts:
+    reports:
+      junit: test-results/results.xml
+    paths:
+      - playwright-report/
+      - test-results/
+      - results.json
+    expire_in: 14 days
+    when: always
+  
+  after_script:
+    - echo "WebKit tests completed"
+  
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  
+  only:
+    - merge_requests
+    - main
+    - develop
+  
+  tags:
+    - docker
+  
+  variables:
+    TEST_EMAIL: $TEST_EMAIL
+    TEST_PASSWORD: $TEST_PASSWORD
+
+# ============================================================================
+# STAGE 3B: BDD CUCUMBER TESTS
+# ============================================================================
+
+test:bdd:
+  stage: test
+  image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-focal
+  
+  before_script:
+    - apt-get update && apt-get install -y node-${NODE_VERSION}
+    - npm ci --cache /tmp/npm-cache
+    - npx playwright install chromium --with-deps
+  
+  dependencies:
+    - setup:auth
+  
+  script:
+    - echo "Running BDD tests..."
+    - npm run bdd
+  
+  artifacts:
+    reports:
+      junit: reports/cucumber/junit.xml
+    paths:
+      - reports/cucumber/
+      - reports/allure-results/
+    expire_in: 14 days
+    when: always
+  
+  after_script:
+    - echo "BDD tests completed"
+  
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  
+  only:
+    - merge_requests
+    - main
+    - develop
+  
+  tags:
+    - docker
+  
+  variables:
+    TEST_EMAIL: $TEST_EMAIL
+    TEST_PASSWORD: $TEST_PASSWORD
+
+# ============================================================================
+# STAGE 4: GENERATE REPORTS
+# ============================================================================
+
+report:merge_results:
+  stage: report
+  image: node:${NODE_VERSION}
+  
+  script:
+    - echo "Merging test results..."
+    - mkdir -p merged-results
+    - |
+      if [ -d "test-results" ]; then
+        find test-results -name "results.xml" -exec cp {} merged-results/ \;
+      fi
+    - echo "Test results merged successfully"
+  
+  artifacts:
+    paths:
+      - merged-results/
+    expire_in: 30 days
+  
+  only:
+    - merge_requests
+    - main
+    - develop
+  
+  tags:
+    - docker
+  
+  allow_failure: true
+
+report:allure:
+  stage: report
+  image: frankescobar/allure-docker-service
+  
+  dependencies:
+    - test:bdd
+  
+  script:
+    - echo "Generating Allure report..."
+    - allure generate reports/allure-results -o allure-report --clean
+  
+  artifacts:
+    paths:
+      - allure-report/
+    expire_in: 30 days
+  
+  only:
+    - merge_requests
+    - main
+    - develop
+  
+  tags:
+    - docker
+  
+  allow_failure: true
+
+# ============================================================================
+# STAGE 5: NOTIFICATIONS & ALERTS
+# ============================================================================
+
+notify:slack:on_success:
+  stage: notify
+  image: curlimages/curl:latest
+  
+  script:
+    - |
+      curl -X POST $SLACK_WEBHOOK_URL \
+        -H 'Content-Type: application/json' \
+        -d '{
+          "text": "✅ Roadtrippers Playwright Tests PASSED",
+          "blocks": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*✅ Roadtrippers Playwright Tests - PASSED*\n\nProject: '${{ CI_PROJECT_NAME }}'\nBranch: '${{ CI_COMMIT_REF_NAME }}'\nCommit: '${{ CI_COMMIT_SHORT_SHA }}'\nAuthor: '${{ CI_COMMIT_AUTHOR }}'"
+              }
+            },
+            {
+              "type": "actions",
+              "elements": [
+                {
+                  "type": "button",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "View Pipeline"
+                  },
+                  "url": "${{ CI_PIPELINE_URL }}"
+                },
+                {
+                  "type": "button",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "View Results"
+                  },
+                  "url": "${{ CI_PROJECT_URL }}/-/pipelines/${{ CI_PIPELINE_ID }}"
+                }
+              ]
+            }
+          ]
+        }'
+  
+  when: on_success
+  only:
+    - main
+    - develop
+  
+  allow_failure: true
+
+notify:slack:on_failure:
+  stage: notify
+  image: curlimages/curl:latest
+  
+  script:
+    - |
+      curl -X POST $SLACK_WEBHOOK_URL \
+        -H 'Content-Type: application/json' \
+        -d '{
+          "text": "❌ Roadtrippers Playwright Tests FAILED",
+          "blocks": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*❌ Roadtrippers Playwright Tests - FAILED*\n\nProject: '${{ CI_PROJECT_NAME }}'\nBranch: '${{ CI_COMMIT_REF_NAME }}'\nCommit: '${{ CI_COMMIT_SHORT_SHA }}'\nAuthor: '${{ CI_COMMIT_AUTHOR }}'"
+              }
+            },
+            {
+              "type": "actions",
+              "elements": [
+                {
+                  "type": "button",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "View Pipeline"
+                  },
+                  "url": "${{ CI_PIPELINE_URL }}"
+                },
+                {
+                  "type": "button",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "View Logs"
+                  },
+                  "url": "${{ CI_PROJECT_URL }}/-/pipelines/${{ CI_PIPELINE_ID }}"
+                }
+              ]
+            }
+          ]
+        }'
+  
+  when: on_failure
+  only:
+    - main
+    - develop
+  
+  allow_failure: true
+
+notify:email:on_failure:
+  stage: notify
+  image: alpine
+  
+  script:
+    - echo "Test pipeline failed. Check pipeline logs for details."
+  
+  when: on_failure
+  only:
+    - main
+    - develop
+  
+  allow_failure: true
+
+# ============================================================================
+# ADDITIONAL JOBS
+# ============================================================================
+
+pages:
+  stage: report
+  image: node:${NODE_VERSION}
+  
+  dependencies:
+    - test:chromium
+    - test:firefox
+    - test:webkit
+    - report:allure
+  
+  script:
+    - echo "Preparing GitLab Pages..."
+    - mkdir -p public
+    - |
+      if [ -d "playwright-report" ]; then
+        cp -r playwright-report/* public/
+      fi
+    - |
+      if [ -d "allure-report" ]; then
+        mkdir -p public/allure
+        cp -r allure-report/* public/allure/
+      fi
+    - echo "Pages ready at ${{ CI_PAGES_URL }}"
+  
+  artifacts:
+    paths:
+      - public
+    expire_in: 30 days
+  
+  only:
+    - main
+    - develop
+  
+  tags:
+    - docker
+  
+  allow_failure: true
+
+# ============================================================================
+# SCHEDULED JOBS
+# ============================================================================
+
+test:nightly:
+  stage: test
+  image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-focal
+  
+  before_script:
+    - apt-get update && apt-get install -y node-${NODE_VERSION}
+    - npm ci --cache /tmp/npm-cache
+    - npx playwright install --with-deps
+  
+  script:
+    - echo "Running nightly tests on all browsers..."
+    - npx playwright test --reporter=junit,html,json
+  
+  artifacts:
+    reports:
+      junit: test-results/results.xml
+    paths:
+      - playwright-report/
+      - test-results/
+    expire_in: 30 days
+    when: always
+  
+  only:
+    - schedules
+  
+  tags:
+    - docker
+  
+  variables:
+    TEST_EMAIL: $TEST_EMAIL
+    TEST_PASSWORD: $TEST_PASSWORD

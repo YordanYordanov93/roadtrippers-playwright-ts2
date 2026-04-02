@@ -95,8 +95,13 @@ test.describe('TC-003: Error Scenarios', () => {
       // Click login without filling in any fields
       await loginPage.clickLogin();
 
-      // Should remain on the login page (either browser validation or server)
-      await page.waitForTimeout(2_000);
+      // Wait for any response: staying on login (browser HTML5 validation) or
+      // a server-side error appearing
+      await Promise.race([
+        page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 5_000 }),
+        page.locator('[role="alert"], [class*="error"], [class*="Error"]')
+          .first().waitFor({ state: 'visible', timeout: 5_000 }),
+      ]).catch(() => {}); // remaining idle is valid (browser blocked submit via HTML5 validation)
       expect(isAllowedUnauthenticatedUrl(page.url())).toBe(true);
     }
   );
@@ -114,8 +119,12 @@ test.describe('TC-003: Error Scenarios', () => {
       await loginPage.enterPassword('somepassword');
       await loginPage.clickLogin();
 
-      // Should remain on login page — browser or server validation rejects it
-      await page.waitForTimeout(2_000);
+      // Wait for browser/server validation to respond
+      await Promise.race([
+        page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 5_000 }),
+        page.locator('[role="alert"], [class*="error"], [class*="Error"]')
+          .first().waitFor({ state: 'visible', timeout: 5_000 }),
+      ]).catch(() => {}); // staying on login page is the expected outcome
       const currentUrl = page.url();
       expect(isAllowedUnauthenticatedUrl(currentUrl)).toBe(true);
       expect(currentUrl).not.toContain('dashboard');
@@ -140,7 +149,12 @@ test.describe('TC-003: Error Scenarios', () => {
 
       if (isVisible) {
         await createBtn.click();
-        await page.waitForTimeout(2_000);
+        // Wait for either a login redirect or a login modal/heading to appear
+        await Promise.race([
+          page.waitForURL(/\/login/, { timeout: 6_000 }),
+          page.getByRole('heading', { name: /log in|sign in/i })
+            .waitFor({ state: 'visible', timeout: 6_000 }),
+        ]).catch(() => {});
 
         // Should either redirect to login OR show a login modal
         const currentUrl = page.url();
