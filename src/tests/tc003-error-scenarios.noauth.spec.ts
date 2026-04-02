@@ -24,6 +24,7 @@ import {
   invalidCredentials,
   validEmailBadPassword,
   emptyCredentials,
+  invalidFormatCredentials,
 } from '../fixtures/test-data';
 
 // ─── Instantiate page objects inside each test (no fixture extension needed) ──
@@ -115,8 +116,8 @@ test.describe('TC-003: Error Scenarios', () => {
       await loginPage.waitForLoad();
       await loginPage.dismissCookieBanner();
 
-      await loginPage.enterEmail('not-an-email');
-      await loginPage.enterPassword('somepassword');
+      await loginPage.enterEmail(invalidFormatCredentials.email);
+      await loginPage.enterPassword(invalidFormatCredentials.password);
       await loginPage.clickLogin();
 
       // Wait for browser/server validation to respond

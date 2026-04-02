@@ -54,22 +54,37 @@ export class MapPage extends BasePage {
   }
 
   async waitForLoad(): Promise<this> {
-    await this.page.waitForURL(/maps\.roadtrippers\.com/, { timeout: 30_000 });
-    try {
-      // Preferred ready signal.
-      await this.page.waitForFunction(
-        () => document.querySelector('canvas.mapboxgl-canvas') !== null,
-        undefined,
-        { timeout: 20_000 }
-      );
-    } catch {
-      // Fallback for occasional browser-specific rendering delays.
-      const hasFallbackUi =
-        await this.createTripButton.isVisible().catch(() => false) ||
-        await this.loginLink.isVisible().catch(() => false) ||
-        await this.searchInput.isVisible().catch(() => false);
-      expect(hasFallbackUi).toBe(true);
+    // Only wait for URL navigation if we are NOT already on the map domain.
+    // waitForURL times out when the URL already matches at call time in some
+    // browser/Playwright combinations (notably Firefox).
+    const alreadyOnMap = /maps\.roadtrippers\.com/.test(this.page.url());
+    if (!alreadyOnMap) {
+      await this.page.waitForURL(/maps\.roadtrippers\.com/, { timeout: 30_000 });
     }
+
+    // Wait for a visible UI element — canvas, create-trip button, login link,
+    // or search box — whichever appears first. This replaces waitForFunction
+    // which is less reliable across browsers.
+    const canvas      = this.page.locator('canvas.mapboxgl-canvas').first();
+    const createTrip  = this.createTripButton;
+    const loginLink   = this.loginLink;
+    const searchInput = this.searchInput;
+
+    await Promise.race([
+      canvas.waitFor({ state: 'visible', timeout: 20_000 }),
+      createTrip.waitFor({ state: 'visible', timeout: 20_000 }),
+      loginLink.waitFor({ state: 'visible', timeout: 20_000 }),
+      searchInput.waitFor({ state: 'visible', timeout: 20_000 }),
+    ]).catch(async () => {
+      // Final fallback: assert at least one element is visible
+      const hasFallbackUi =
+        await canvas.isVisible().catch(() => false) ||
+        await createTrip.isVisible().catch(() => false) ||
+        await loginLink.isVisible().catch(() => false) ||
+        await searchInput.isVisible().catch(() => false);
+      expect(hasFallbackUi).toBe(true);
+    });
+
     return this;
   }
 
@@ -104,8 +119,8 @@ export class MapPage extends BasePage {
 
   async assertMapIsLoaded(): Promise<void> {
     await expect(this.page).toHaveURL(/maps\.roadtrippers\.com/, { timeout: 10_000 });
-    const hasCanvas = await this.page
-      .waitForFunction(() => document.querySelector('canvas.mapboxgl-canvas') !== null, undefined, { timeout: 20_000 })
+    const canvas = this.page.locator('canvas.mapboxgl-canvas').first();
+    const hasCanvas = await canvas.waitFor({ state: 'visible', timeout: 20_000 })
       .then(() => true)
       .catch(() => false);
     if (!hasCanvas) {
@@ -135,10 +150,8 @@ export class MapPage extends BasePage {
 
   async isMapLoaded(): Promise<boolean> {
     try {
-      await this.page.waitForFunction(
-        () => document.querySelector('canvas.mapboxgl-canvas') !== null,
-        undefined, { timeout: 5_000 }
-      );
+      await this.page.locator('canvas.mapboxgl-canvas').first()
+        .waitFor({ state: 'visible', timeout: 5_000 });
       return true;
     } catch {
       return false;

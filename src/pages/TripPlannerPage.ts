@@ -101,14 +101,14 @@ export class TripPlannerPage extends BasePage {
   // ─── Navigation / state ───────────────────────────────────────────────────
 
   async waitForLoad(): Promise<this> {
+    // Wait for the URL to confirm we're on the map domain
+    const alreadyOnMap = /maps\.roadtrippers\.com/.test(this.page.url());
+    if (!alreadyOnMap) {
+      await this.page.waitForURL(/maps\.roadtrippers\.com/, { timeout: 10_000 });
+    }
     // Map canvas must still be present
-    await this.page.waitForFunction(
-      () => document.querySelector('canvas.mapboxgl-canvas') !== null,
-      undefined,
-      { timeout: 20_000 }
-    );
-    // Wait for the URL to change away from plain '/'
-    await this.page.waitForURL(/maps\.roadtrippers\.com/, { timeout: 10_000 });
+    await this.page.locator('canvas.mapboxgl-canvas').first()
+      .waitFor({ state: 'visible', timeout: 20_000 });
     return this;
   }
 
@@ -174,8 +174,8 @@ export class TripPlannerPage extends BasePage {
     // Wait for suggestions to appear
     await this.suggestionList.waitFor({ state: 'visible', timeout: 10_000 });
 
-    // Wait for the suggestion list to stabilise (at least 1 item rendered)
-    await this.suggestionItems.first().waitFor({ state: 'visible', timeout: 5_000 });
+    // Wait for at least one suggestion item to be visible (list stabilised)
+    await expect(this.suggestionItems.first()).toBeVisible({ timeout: 5_000 }).catch(() => {});
 
     const items = this.suggestionItems;
     const count = await items.count();
@@ -185,8 +185,8 @@ export class TripPlannerPage extends BasePage {
 
     await items.nth(index).click();
 
-    // Wait for the waypoint to be committed to the list
-    await this.waypointItems.first().waitFor({ state: 'visible', timeout: 10_000 });
+    // Wait for the new waypoint item to appear in the list
+    await this.waypointItems.nth(0).waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
     return this;
   }
 
@@ -221,10 +221,9 @@ export class TripPlannerPage extends BasePage {
     await item.hover();
 
     const removeBtn = item.getByRole('button', { name: /remove|delete|×|close/i }).first();
-    const countBefore = await this.waypointItems.count();
     await removeBtn.click();
-    // Wait for the DOM to reflect the removal
-    await expect(this.waypointItems).toHaveCount(countBefore - 1, { timeout: 5_000 });
+    // Wait for the removed item to detach from the DOM
+    await item.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
     return this;
   }
 

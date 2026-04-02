@@ -23,6 +23,11 @@ export const validEmailBadPassword: TestCredentials = {
   password: 'definitely-wrong-password',
 };
 
+export const invalidFormatCredentials: TestCredentials = {
+  email:    'not-an-email',   // intentionally malformed — tests client-side format validation
+  password: 'somepassword',
+};
+
 // ─── Trip data ────────────────────────────────────────────────────────────────
 
 export const happyPathTrip: TripData = {

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { MapPage } from '../pages/MapPage';
 import { TripPlannerPage } from '../pages/TripPlannerPage';
+import { happyPathTrip, validWaypoints } from '../fixtures/test-data';
 
 test.describe('Trip Creation - Happy Path', () => {
   test.describe.configure({ timeout: 240_000 });
@@ -34,14 +35,14 @@ test.describe('Trip Creation - Happy Path', () => {
       return;
     }
 
-    await tripPlannerPage.addWaypoint({ text: 'Paris' });
-    await tripPlannerPage.addWaypoint({ text: 'London' });
-    await tripPlannerPage.addWaypoint({ text: 'Barcelona' });
+    await tripPlannerPage.addWaypoint({ text: happyPathTrip.waypoints[0] });
+    await tripPlannerPage.addWaypoint({ text: happyPathTrip.waypoints[1] });
+    await tripPlannerPage.addWaypoint({ text: happyPathTrip.waypoints[2] });
 
     const count = await tripPlannerPage.getWaypointCount();
     expect(count).toBeGreaterThan(0);
 
-    await tripPlannerPage.setTripName('European Adventure');
+    await tripPlannerPage.setTripName(happyPathTrip.name);
     await tripPlannerPage.saveTrip();
     await tripPlannerPage.assertSaveSuccessful();
   });
@@ -53,7 +54,7 @@ test.describe('Trip Creation - Happy Path', () => {
       return;
     }
 
-    await tripPlannerPage.typeInSearchWithoutSelecting('New');
+    await tripPlannerPage.typeInSearchWithoutSelecting(validWaypoints[0].text);
 
     await tripPlannerPage.suggestionList.waitFor({ state: 'visible', timeout: 8_000 });
     const itemsCount = await tripPlannerPage.suggestionItems.count();

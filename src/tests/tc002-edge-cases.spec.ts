@@ -22,6 +22,7 @@ import {
   longNameTrip,
   specialCharacterTrip,
   invalidWaypoint,
+  validWaypoints,
 } from '../fixtures/test-data';
 
 test.describe('TC-002: Edge Cases', () => {
@@ -118,7 +119,7 @@ test.describe('TC-002: Edge Cases', () => {
       const initialCount = await tripPlannerPage.getWaypointCount();
 
       // Add a waypoint
-      await tripPlannerPage.addWaypoint({ text: 'Denver, Colorado' });
+      await tripPlannerPage.addWaypoint({ text: validWaypoints[2].text }); // 'Denver, Colorado'
       const countAfterAdd = await tripPlannerPage.getWaypointCount();
       expect(countAfterAdd).toBe(initialCount + 1);
 
