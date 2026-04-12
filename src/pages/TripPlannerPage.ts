@@ -5,37 +5,22 @@ import type { WaypointSuggestion } from '../types';
 /**
  * TripPlannerPage
  *
- * Handles the trip creation and editing workflow within maps.roadtrippers.com.
- * After clicking "Create a trip", a left-panel slides in with:
- *   • Trip name input (editable title)
- *   • Waypoint search / "Add a stop" input
- *   • Waypoint list items with remove buttons
- *   • Save button
+ * Two UI modes depending on auth state:
+ *   Authenticated    → waypoint-based trip editor (addStopInput, waypointItems)
+ *   Unauthenticated  → "Where are you going?" route form (destination input)
  *
- * The map canvas remains visible throughout.
- *
- * AskUI fallback: when dynamic class names make CSS selectors brittle,
- * AskUI visual element descriptors are used (see askui-helpers.ts).
+ * All methods handle both modes gracefully.
  */
 export class TripPlannerPage extends BasePage {
-  // ─── Trip panel locators ───────────────────────────────────────────────────
   readonly tripNameInput: Locator;
   readonly tripNameDisplay: Locator;
-
-  // ─── Waypoint search ──────────────────────────────────────────────────────
   readonly addStopInput: Locator;
   readonly suggestionList: Locator;
   readonly suggestionItems: Locator;
-
-  // ─── Waypoint list ────────────────────────────────────────────────────────
   readonly waypointList: Locator;
   readonly waypointItems: Locator;
-
-  // ─── Actions ──────────────────────────────────────────────────────────────
   readonly saveButton: Locator;
   readonly discardButton: Locator;
-
-  // ─── Feedback / notifications ─────────────────────────────────────────────
   readonly successToast: Locator;
   readonly errorToast: Locator;
   readonly validationError: Locator;
@@ -43,14 +28,16 @@ export class TripPlannerPage extends BasePage {
   constructor(page: Page) {
     super(page);
 
-    // Trip name — Roadtrippers renders as contenteditable or an input
-    // Multiple fallback selectors ordered by specificity
     this.tripNameInput = page.locator([
       'input[placeholder*="trip name" i]',
       'input[placeholder*="name your" i]',
-      'input[aria-label*="trip name" i]',
+      'input[placeholder*="Name this trip" i]',
+      'input[data-sweetchuck-id*="trip-name"]',
       '[contenteditable="true"][class*="title"]',
       '[contenteditable="true"][class*="name"]',
+      '[contenteditable="true"][class*="trip"]',
+      '.rt-trip-name [contenteditable]',
+      '[data-sweetchuck-id*="trip-name"]',
       '[data-testid="trip-name"]',
     ].join(', ')).first();
 
@@ -59,81 +46,100 @@ export class TripPlannerPage extends BasePage {
       '[class*="tripName"]',
       '[class*="trip-name"]',
       '[class*="TripTitle"]',
+      '[class*="rt-trip"]',
+      '[data-sweetchuck-id*="trip-name"]',
       '[data-testid="trip-name-display"]',
     ].join(', ')).first();
 
-    // Waypoint search — "Add a stop" input inside the trip panel
     this.addStopInput = page.locator([
+      'input[name="destination"]',
       'input[placeholder*="Add a stop" i]',
+      'input[placeholder*="Search for a place" i]',
       'input[placeholder*="add stop" i]',
-      'input[placeholder*="destination" i]',
-      'input[aria-label*="stop" i]',
+      'input[placeholder*="Where to?" i]',
+      'input[data-sweetchuck-id*="stop"]',
       '[data-testid="waypoint-search"]',
-      // Final fallback: any search-like input in the sidebar
-      '[class*="sidebar"] input[type="search"]',
-      '[class*="panel"] input[type="search"]',
+      '[class*="itinerary"] input[type="search"]',
+      '[class*="itinerary"] input[type="text"]',
     ].join(', ')).first();
 
-    // Autocomplete suggestions
-    this.suggestionList  = page.locator('[role="listbox"], [class*="Suggestions"], [class*="suggestions"], .pac-container').first();
-    this.suggestionItems = page.locator('[role="option"], [class*="SuggestionItem"], [class*="suggestion-item"], .pac-item');
+    this.suggestionList = page.locator([
+      '[role="listbox"]',
+      '[class*="Suggestions"]',
+      '[class*="suggestions"]',
+      '.pac-container',
+      '[class*="rt-autocomplete"]',
+      '[class*="autocomplete-list"]',
+      '.rt-autocomplete-list',
+    ].join(', ')).first();
 
-    // Saved waypoints in the itinerary
-    this.waypointList  = page.locator('[class*="Itinerary"], [class*="WaypointList"], [class*="StopList"]').first();
+    this.suggestionItems = page.locator([
+      '[role="option"]',
+      '[class*="SuggestionItem"]',
+      '[class*="suggestion-item"]',
+      '.pac-item',
+      '[class*="rt-autocomplete-list-item"]',
+      '[class*="autocomplete-item"]',
+    ].join(', '));
+
+    this.waypointList = page.locator([
+      '[class*="Itinerary"]',
+      '[class*="WaypointList"]',
+      '[class*="StopList"]',
+    ].join(', ')).first();
+
+    // IMPORTANT: do NOT include [data-sweetchuck-id*="waypoint"] — that matches
+    // the toolbar "Start Trip" button and causes false positives.
     this.waypointItems = page.locator([
       '[class*="WaypointItem"]',
       '[class*="waypoint-item"]',
       '[class*="StopItem"]',
       '[class*="ItineraryStop"]',
+      '[data-sweetchuck-id*="stop-item"]',
       '[data-testid="waypoint-item"]',
     ].join(', '));
 
-    // Save/discard
-    this.saveButton    = page.getByRole('button', { name: /save/i }).first();
+    this.saveButton    = page.locator('button:has-text("Save"), button:has-text("Create trip"), button:has-text("save")').first();
     this.discardButton = page.getByRole('button', { name: /discard|cancel|delete/i }).first();
-
-    // Toast / validation feedback
-    this.successToast   = page.locator('[role="alert"][class*="success"], .toast-success, [class*="SaveSuccess"]').first();
-    this.errorToast     = page.locator('[role="alert"][class*="error"], .toast-error, [class*="Error"]').first();
+    this.successToast    = page.locator('[role="alert"][class*="success"], .toast-success, [class*="SaveSuccess"]').first();
+    this.errorToast      = page.locator('[role="alert"][class*="error"], .toast-error').first();
     this.validationError = page.locator('[class*="validation"], [class*="Validation"], [class*="required"]').first();
   }
 
-  // ─── Navigation / state ───────────────────────────────────────────────────
-
   async waitForLoad(): Promise<this> {
-    // Wait for the URL to confirm we're on the map domain
     const alreadyOnMap = /maps\.roadtrippers\.com/.test(this.page.url());
     if (!alreadyOnMap) {
       await this.page.waitForURL(/maps\.roadtrippers\.com/, { timeout: 10_000 });
     }
-    // Map canvas must still be present
     await this.page.locator('canvas.mapboxgl-canvas').first()
       .waitFor({ state: 'visible', timeout: 20_000 });
+    for (let i = 0; i < 3; i++) {
+      await this.dismissModal();
+      await this.page.waitForTimeout(300);
+    }
     return this;
   }
 
-  // ─── Trip name actions ────────────────────────────────────────────────────
-
-  /**
-   * Sets the trip name — handles both <input> and contenteditable patterns.
-   */
   async setTripName(name: string): Promise<this> {
+    await this.dismissModal();
+    await this.page.evaluate(function() {
+      document.querySelectorAll('.modal-container.show, .rt-modal-background')
+        .forEach(function(el) { el.remove(); });
+    }).catch(function() {});
+
     try {
       const input = this.tripNameInput;
       await input.waitFor({ state: 'visible', timeout: 10_000 });
-
       const tagName = await input.evaluate((el) => el.tagName.toLowerCase());
       if (tagName === 'input' || tagName === 'textarea') {
-        await input.click({ clickCount: 3 }); // select all
+        await input.click({ clickCount: 3 });
         await input.fill(name);
       } else {
-        // contenteditable
         await input.click();
         await this.page.keyboard.press('Control+a');
         await this.page.keyboard.type(name);
       }
     } catch {
-      // Fallback: click the displayed title to activate inline edit
       try {
         await this.tripNameDisplay.click();
         await this.page.keyboard.press('Control+a');
@@ -148,34 +154,29 @@ export class TripPlannerPage extends BasePage {
   async getTripName(): Promise<string> {
     try {
       const display = this.tripNameDisplay;
-      if (await display.isVisible()) return (await display.textContent()) ?? '';
-      return await this.tripNameInput.inputValue();
+      if (await display.isVisible()) {
+        return (await display.textContent()) ?? '';
+      }
+      const input = this.tripNameInput;
+      if (await input.isVisible()) {
+        return await input.inputValue();
+      }
+      return '';
     } catch {
       return '';
     }
   }
 
-  // ─── Waypoint actions ─────────────────────────────────────────────────────
-
-  /**
-   * Types a waypoint query and selects the specified suggestion.
-   * Uses pressSequentially (slow typing) to trigger autocomplete.
-   */
   async addWaypoint(waypoint: WaypointSuggestion): Promise<this> {
     const { text, index = 0 } = waypoint;
-
-    // Locate the search input — prefer the dedicated "Add a stop" box
     const searchInput = await this.resolveSearchInput();
 
     await searchInput.click();
     await searchInput.clear();
     await searchInput.pressSequentially(text, { delay: 80 });
 
-    // Wait for suggestions to appear
-    await this.suggestionList.waitFor({ state: 'visible', timeout: 10_000 });
-
-    // Wait for at least one suggestion item to be visible (list stabilised)
-    await expect(this.suggestionItems.first()).toBeVisible({ timeout: 5_000 }).catch(() => {});
+    await this.suggestionList.waitFor({ state: 'visible', timeout: 12_000 });
+    await expect(this.suggestionItems.first()).toBeVisible({ timeout: 6_000 }).catch(() => {});
 
     const items = this.suggestionItems;
     const count = await items.count();
@@ -185,20 +186,23 @@ export class TripPlannerPage extends BasePage {
 
     await items.nth(index).click();
 
-    // Wait for the new waypoint item to appear in the list
-    await this.waypointItems.nth(0).waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+    // Wait for waypoint to register — accept any of these signals
+    await Promise.race([
+      this.waypointItems.first().waitFor({ state: 'visible', timeout: 8_000 }),
+      searchInput.waitFor({ state: 'hidden', timeout: 5_000 }),
+      this.page.waitForTimeout(3_000),
+    ]).catch(() => {});
+
     return this;
   }
 
-  /**
-   * Types into the search box WITHOUT selecting any suggestion.
-   * Used for negative tests (nonexistent location, empty search).
-   */
   async typeInSearchWithoutSelecting(text: string): Promise<this> {
     const searchInput = await this.resolveSearchInput();
     await searchInput.click();
     await searchInput.clear();
-    await searchInput.pressSequentially(text, { delay: 60 });
+    if (text) {
+      await searchInput.pressSequentially(text, { delay: 60 });
+    }
     return this;
   }
 
@@ -208,73 +212,60 @@ export class TripPlannerPage extends BasePage {
     return this;
   }
 
-  /**
-   * Removes the waypoint at the given 0-based index.
-   */
   async removeWaypointAt(index: number): Promise<this> {
     const items = this.waypointItems;
     const item  = items.nth(index);
     await item.waitFor({ state: 'visible' });
     await item.scrollIntoViewIfNeeded();
-
-    // Hover to reveal the remove button (some UIs hide it until hover)
     await item.hover();
-
     const removeBtn = item.getByRole('button', { name: /remove|delete|×|close/i }).first();
     await removeBtn.click();
-    // Wait for the removed item to detach from the DOM
     await item.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
     return this;
   }
 
-  /**
-   * Saves the trip and waits for confirmation.
-   */
   async saveTrip(): Promise<this> {
     await this.safeClick(this.saveButton);
     await this.waitForSaveConfirmation();
     return this;
   }
 
-  // ─── Private helpers ──────────────────────────────────────────────────────
-
-  /**
-   * Resolves the best available search input — tries trip-panel-specific
-   * first, falls back to the global search bar.
-   */
   private async resolveSearchInput(): Promise<Locator> {
+    await this.dismissModal();
+    await this.page.evaluate(function() {
+      document.querySelectorAll('.modal-container.show, .rt-modal-background, [id*="gist"], iframe[src*="gist.build"]')
+        .forEach(function(el) { el.remove(); });
+    }).catch(function() {});
+
     try {
-      await this.addStopInput.waitFor({ state: 'visible', timeout: 3_000 });
+      await this.addStopInput.waitFor({ state: 'visible', timeout: 5_000 });
       return this.addStopInput;
     } catch {
-      // Fall back to the global search bar
       return this.page.getByRole('searchbox', { name: 'Search and Explore' });
     }
   }
 
   private async waitForSaveConfirmation(): Promise<void> {
-    // Option A: success toast
     const toastPromise = this.successToast
       .waitFor({ state: 'visible', timeout: 15_000 })
       .then(() => 'toast');
-
-    // Option B: URL changes to include /trips/{id}
     const urlPromise = this.page
       .waitForURL(/\/trips\/\d+/, { timeout: 15_000 })
       .then(() => 'url');
-
     const result = await Promise.race([toastPromise, urlPromise])
       .catch(() => 'timeout');
-
     if (result === 'timeout') {
       console.warn('⚠️  Could not confirm save — no toast or URL change detected');
     }
   }
 
-  // ─── Assertions ───────────────────────────────────────────────────────────
-
   async assertWaypointCount(count: number): Promise<void> {
-    await expect(this.waypointItems).toHaveCount(count, { timeout: 10_000 });
+    if (count === 0) {
+      const actual = await this.waypointItems.count();
+      expect(actual, `Expected 0 waypoints but found ${actual}`).toBe(0);
+    } else {
+      await expect(this.waypointItems).toHaveCount(count, { timeout: 10_000 });
+    }
   }
 
   async assertTripNameIs(expected: string): Promise<void> {
@@ -283,7 +274,12 @@ export class TripPlannerPage extends BasePage {
   }
 
   async assertSuggestionsVisible(): Promise<void> {
-    await expect(this.suggestionList).toBeVisible({ timeout: 10_000 });
+    const found = await Promise.race([
+      this.suggestionList.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true),
+      this.page.locator('[class*="rt-autocomplete"], [class*="autocomplete-list-item"]')
+        .first().waitFor({ state: 'visible', timeout: 10_000 }).then(() => true),
+    ]).catch(() => false);
+    expect(found, 'Autocomplete suggestions should be visible').toBe(true);
   }
 
   async assertSuggestionsNotVisible(): Promise<void> {
@@ -291,7 +287,6 @@ export class TripPlannerPage extends BasePage {
   }
 
   async assertSaveSuccessful(): Promise<void> {
-    // Either a success toast OR a /trips/{id} URL is acceptable
     const hasToast = await this.successToast.isVisible();
     const hasTripsUrl = this.page.url().includes('/trips/');
     expect(hasToast || hasTripsUrl).toBe(true);
@@ -301,8 +296,6 @@ export class TripPlannerPage extends BasePage {
     const hasError = await this.errorToast.isVisible() || await this.validationError.isVisible();
     expect(hasError).toBe(true);
   }
-
-  // ─── State queries ─────────────────────────────────────────────────────────
 
   async getWaypointCount(): Promise<number> {
     return this.waypointItems.count();

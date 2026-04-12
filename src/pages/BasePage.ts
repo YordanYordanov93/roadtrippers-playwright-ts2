@@ -17,7 +17,7 @@ import { type Page, type Locator, expect } from '@playwright/test';
  *   • Assertions are self-contained — pages validate their own loaded state
  */
 export abstract class BasePage {
-  protected readonly page: Page;
+  readonly page: Page;
 
   constructor(page: Page) {
     this.page = page;
@@ -45,16 +45,100 @@ export abstract class BasePage {
    * Verified locator from live site: alertdialog → "Accept All Cookies" button.
    */
   async dismissCookieBanner(): Promise<void> {
-    const banner = this.page.getByRole('alertdialog', { name: 'Privacy' });
+    const banner    = this.page.getByRole('alertdialog', { name: 'Privacy' });
     const acceptBtn = banner.getByRole('button', { name: /accept all cookies/i });
 
     try {
       await acceptBtn.waitFor({ state: 'visible', timeout: 6_000 });
-      await acceptBtn.click();
+
+      // Remove the Gist overlay before clicking — it intercepts pointer events
+      // on the cookie banner button (#gist-overlay confirmed in failure logs).
+      await this.page.evaluate(() => {
+        document.querySelectorAll(
+          '#gist-overlay, #gist-embed-message, [id*="gist"], iframe[src*="gist.build"], [class*="gist-visible"], #x-gist-floating-bottom'
+        ).forEach(el => el.remove());
+      }).catch(() => {});
+
+      await acceptBtn.click({ force: true });
       await acceptBtn.waitFor({ state: 'hidden', timeout: 5_000 });
     } catch {
       // Banner not present — that's fine, continue
     }
+  }
+
+  /**
+   * Dismisses any blocking modal overlay (membership upsell, promo popups, etc).
+   *
+   * Roadtrippers shows `.modal-container.show` modals with `.rt-modal-background`
+   * that intercept all pointer events. These must be closed before interacting
+   * with the trip planner panel or map controls.
+   *
+   * Tries in order:
+   *   1. Clicks the × / Close / Dismiss button inside the modal
+   *   2. Clicks the backdrop (rt-modal-background) to close
+   *   3. Presses Escape
+   *   4. Removes the modal from the DOM via JS (last resort)
+   */
+  async dismissModal(): Promise<void> {
+    const modal = this.page.locator('.modal-container.show, .rt-modal.show, [class*="modal"][class*="show"]').first();
+    try {
+      await modal.waitFor({ state: 'visible', timeout: 3_000 });
+    } catch {
+      return; // no modal visible — nothing to do
+    }
+
+    // Try close button first
+    const closeBtn = modal.locator([
+      'button[aria-label*="close" i]',
+      'button[aria-label*="dismiss" i]',
+      'button.close',
+      '.rt-modal-close',
+      '[class*="modal-close"]',
+      '[class*="ModalClose"]',
+      'button:has-text("×")',
+      'button:has-text("✕")',
+      'button:has-text("Close")',
+      'button:has-text("No thanks")',
+      'button:has-text("Maybe later")',
+      'button:has-text("Not now")',
+      'button:has-text("Skip")',
+    ].join(', ')).first();
+
+    try {
+      await closeBtn.waitFor({ state: 'visible', timeout: 1_500 });
+      await closeBtn.click({ force: true });
+      await modal.waitFor({ state: 'hidden', timeout: 3_000 });
+      return;
+    } catch { /* try next */ }
+
+    // Try clicking the backdrop
+    const backdrop = this.page.locator('.rt-modal-background, .modal-backdrop, [class*="modal-background"]').first();
+    try {
+      await backdrop.click({ force: true });
+      await modal.waitFor({ state: 'hidden', timeout: 2_000 });
+      return;
+    } catch { /* try next */ }
+
+    // Try Escape key
+    try {
+      await this.page.keyboard.press('Escape');
+      await modal.waitFor({ state: 'hidden', timeout: 2_000 });
+      return;
+    } catch { /* try next */ }
+
+    // Last resort: remove from DOM including Gist chat widget
+    await this.page.evaluate(() => {
+      document.querySelectorAll([
+        '.modal-container.show',
+        '.rt-modal-background',
+        '#gist-overlay',
+        '#gist-embed-message',
+        '[id*="gist"]',
+        '[class*="gist-visible"]',
+        'iframe[src*="gist.build"]',
+        '#x-gist-floating-bottom',
+      ].join(', ')).forEach(el => el.remove());
+    }).catch(() => {});
   }
 
   // ─── Locator helpers ──────────────────────────────────────────────────────

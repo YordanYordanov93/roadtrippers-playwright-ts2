@@ -20,7 +20,7 @@ export class LoginPage extends BasePage {
     super(page);
 
     this.heading              = page.getByRole('heading', { name: 'Log in to your account' });
-    this.emailInput           = page.locator('input[type="text"]:not([type="password"])').first();
+    this.emailInput           = page.locator('input[name="login"], input[type="text"]:not([type="password"])').first();
     this.passwordInput        = page.getByRole('textbox', { name: 'Password' });
     this.loginButton          = page.getByRole('button', { name: /log in/i }).first();
     this.forgotPasswordButton = page.getByRole('button', { name: 'Forgot password?' });

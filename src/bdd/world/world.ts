@@ -20,8 +20,11 @@ import {
   setDefaultTimeout,
   World,
   type IWorldOptions,
-  type ITestCaseHookParameter,
+  type ITestStepHookParameter,
 } from '@cucumber/cucumber';
+
+// v10 alias → v11 name
+type ITestCaseHookParameter = ITestStepHookParameter;
 import {
   chromium,
   firefox,
@@ -42,6 +45,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 // Page objects — same classes as the Playwright spec tests
 import { LoginPage }       from '../../pages/LoginPage';
 import { MapPage }         from '../../pages/MapPage';
+import { BddMapPage }     from '../support/BddMapPage';
 import { TripPlannerPage } from '../../pages/TripPlannerPage';
 import { MyTripsPage }     from '../../pages/MyTripsPage';
 import { AskUIHelper }     from '../../utils/askui-helper';
@@ -58,7 +62,7 @@ export interface WorldParameters {
 
 export interface Pages {
   loginPage:       LoginPage;
-  mapPage:         MapPage;
+  mapPage:         BddMapPage;  // BDD-specific subclass with avatar-based auth
   tripPlannerPage: TripPlannerPage;
   myTripsPage:     MyTripsPage;
   askUI:           AskUIHelper;
@@ -71,6 +75,7 @@ export interface ScenarioContext {
   tripName?:      string;
   waypointCount?: number;
   lastError?:     string;
+  skipped?:       boolean;   // set true when scenario skips due to not being authenticated
 }
 
 // ─── Custom World class ───────────────────────────────────────────────────────
@@ -115,16 +120,33 @@ export class RoadtrippersWorld extends World {
       slowMo: headless ? 0 : 50,   // human-readable speed in headed mode
     });
 
-    // Create context — load saved auth state when it exists
+    // Create context — load saved auth state only when it has real cookies.
+    // An empty auth.json (no cookies) means reCAPTCHA blocked login — loading it
+    // gives a guest context anyway, so we skip it to avoid silent auth failures.
     const authPath = path.resolve(process.cwd(), 'config/state/auth.json');
-    const authExists = fs.existsSync(authPath);
+
+    const hasValidAuth = (() => {
+      if (!fs.existsSync(authPath)) return false;
+      try {
+        const state = JSON.parse(fs.readFileSync(authPath, 'utf-8'));
+        return Array.isArray(state.cookies) && state.cookies.length > 0;
+      } catch {
+        return false;
+      }
+    })();
+
+    if (!hasValidAuth) {
+      console.warn('\n  ⚠️  No valid auth session found in config/state/auth.json.');
+      console.warn('  @auth scenarios will fail. Fix by running:');
+      console.warn('    npx tsx scripts/capture-auth.ts\n');
+    }
 
     this.context = await this.browser.newContext({
       baseURL,
       viewport:    { width: 1440, height: 900 },
       locale:      'en-US',
       colorScheme: 'light',
-      ...(authExists ? { storageState: authPath } : {}),
+      ...(hasValidAuth ? { storageState: authPath } : {}),
     });
 
     this.page = await this.context.newPage();
@@ -132,7 +154,7 @@ export class RoadtrippersWorld extends World {
     // Wire page objects
     this.pages = {
       loginPage:       new LoginPage(this.page),
-      mapPage:         new MapPage(this.page),
+      mapPage:         new BddMapPage(this.page),
       tripPlannerPage: new TripPlannerPage(this.page),
       myTripsPage:     new MyTripsPage(this.page),
       askUI:           new AskUIHelper(this.page),

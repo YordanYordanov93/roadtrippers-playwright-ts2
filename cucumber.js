@@ -1,31 +1,26 @@
 // cucumber.js  – Cucumber-JS configuration
-// Docs: https://github.com/cucumber/cucumber-js/blob/main/docs/configuration.md
+
 const common = {
   require: [
-    'src/bdd/world/world.ts',     // World (browser + page objects)
-    'src/bdd/hooks/hooks.ts',     // Before / After hooks
-    'src/bdd/steps/**/*.ts',      // All step definitions
-    'src/bdd/support/**/*.ts',    // Support utilities
+    'src/bdd/support/env.ts',
+    'src/bdd/world/world.ts',
+    'src/bdd/hooks/hooks.ts',
+    'src/bdd/steps/common.steps.ts',
+    'src/bdd/steps/authentication.steps.ts',
+    'src/bdd/steps/trip-creation.steps.ts',
+    'src/bdd/steps/trip-management.steps.ts',
   ],
-  requireModule: ['ts-node/register'],
-  timeout: 30000,                 // 30 s default for all steps and hooks
+  requireModule: ['tsx/cjs'],
   format: [
-    'progress-bar',                                     // compact progress bar
-    '@cucumber/pretty-formatter',                       // readable step output
-    'json:reports/cucumber/results.json',               // JSON for post-processing
-    'html:reports/cucumber/report.html',                // built-in HTML report
+    'progress-bar',
+    'json:reports/cucumber/results.json',
+    'html:reports/cucumber/report.html',
+    'allure-cucumberjs/reporter',
   ],
   formatOptions: {
     snippetInterface: 'async-await',
+    resultsDir: 'reports/allure-results',
   },
-  plugins: [
-    {
-      plugin: 'allure-cucumberjs/reporter',             // Allure rich report
-      options: {
-        resultsDir: 'reports/allure-results',
-      },
-    },
-  ],
 };
 
 const headless = {
@@ -39,47 +34,60 @@ const headed = {
 };
 
 module.exports = {
-  // Default profile – headless
   default: {
     ...headless,
-    paths: ['src/bdd/features/**/*.feature'],
-    parallel: 1,          // sequential – auth session is shared
-    retry: 1,             // retry once on flaky network
+    paths: [
+      'src/bdd/features/authentication.feature',
+      'src/bdd/features/edge-cases.feature',
+      'src/bdd/features/trip-creation.feature',
+      'src/bdd/features/trip-management.feature',
+    ],
+    parallel: 1,
+    retry: 1,
   },
-  // Headed profile for local debugging
+
   headed: {
     ...headed,
-    paths: ['src/bdd/features/**/*.feature'],
+    paths: [
+      'src/bdd/features/authentication.feature',
+      'src/bdd/features/edge-cases.feature',
+      'src/bdd/features/trip-creation.feature',
+      'src/bdd/features/trip-management.feature',
+    ],
     parallel: 1,
   },
-  // Smoke only
+
   smoke: {
     ...headless,
-    paths: ['src/bdd/features/**/*.feature'],
+    paths: [
+      'src/bdd/features/authentication.feature',
+      'src/bdd/features/edge-cases.feature',
+      'src/bdd/features/trip-creation.feature',
+      'src/bdd/features/trip-management.feature',
+    ],
     tags: '@smoke',
     parallel: 1,
   },
-  // CI profile – fail fast + JUnit output
+
   ci: {
     ...headless,
-    paths: ['src/bdd/features/**/*.feature'],
+    paths: [
+      'src/bdd/features/authentication.feature',
+      'src/bdd/features/edge-cases.feature',
+      'src/bdd/features/trip-creation.feature',
+      'src/bdd/features/trip-management.feature',
+    ],
     parallel: 1,
     retry: 2,
     format: [
       'progress-bar',
       'json:reports/cucumber/results.json',
-      'junit:reports/cucumber/junit.xml',              // Jenkins / GitHub Actions
+      'junit:reports/cucumber/junit.xml',
+      'allure-cucumberjs/reporter',
     ],
     formatOptions: {
       snippetInterface: 'async-await',
+      resultsDir: 'reports/allure-results',
     },
-    plugins: [
-      {
-        plugin: 'allure-cucumberjs/reporter',           // Allure rich report
-        options: {
-          resultsDir: 'reports/allure-results',
-        },
-      },
-    ],
   },
 };

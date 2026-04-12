@@ -2,51 +2,61 @@ import { type Page, type Locator, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
- * MapPage — https://maps.roadtrippers.com (authenticated state)
+ * MapPage — https://maps.roadtrippers.com
  *
- * This is the primary application shell. After login, all interactions happen
- * here — trip creation, search, itinerary management.
+ * Locators source-verified from live DOM + JS bundle inspection (2026-04-02).
  *
- * Verified locators from live DOM inspection (2026-02-18):
- *   • Map canvas:     region[aria-label="Map"] / canvas.mapboxgl-canvas
- *   • Create a trip:  button "Create a trip"
- *   • Bottom toolbar: button "Explore", "Itinerary", "My trips", "Start Trip"
- *   • Search:         searchbox "Search and Explore"
- *   • Log in link:    link "Log in" (shown when not authenticated)
+ * Auth state — MUTUALLY EXCLUSIVE elements inside .rt-top-bar-auth:
+ *   • Unauthenticated: .rt-top-bar-sign-in-link  (data-sweetchuck-id="top-bar__button--log-in")
+ *   • Authenticated:   .rt-top-bar-avatar-button  (data-sweetchuck-id="header__image--user-profile-auth")
+ *
+ * NOTE: loginLink is kept as the primary auth locator for backward compatibility
+ * with the Playwright spec tests (tc001–tc004). The BDD layer uses the subclass
+ * BddMapPage (src/bdd/support/BddMapPage.ts) which overrides isAuthenticated()
+ * to use the avatar button as a positive signal instead.
  */
 export class MapPage extends BasePage {
-  // ─── Layout / navigation locators ─────────────────────────────────────────
   readonly mapRegion: Locator;
   readonly searchInput: Locator;
-  readonly loginLink: Locator;
+  readonly loginLink: Locator;       // visible when NOT authenticated
+  readonly avatarButton: Locator;    // visible when authenticated
 
-  // ─── Bottom toolbar ────────────────────────────────────────────────────────
   readonly exploreButton: Locator;
   readonly itineraryButton: Locator;
   readonly myTripsButton: Locator;
   readonly startTripButton: Locator;
 
-  // ─── Trip creation CTA ────────────────────────────────────────────────────
   readonly createTripButton: Locator;
-  readonly createTripCTA: Locator;      // The "Adventure is on the horizon" panel
+  readonly createTripCTA: Locator;
 
   constructor(page: Page) {
     super(page);
 
-    this.mapRegion        = page.getByRole('region', { name: 'Map' });
-    this.searchInput      = page.getByRole('searchbox', { name: 'Search and Explore' });
-    this.loginLink        = page.getByRole('link', { name: 'Log in' });
+    this.mapRegion    = page.getByRole('region', { name: 'Map' });
+    this.searchInput  = page.getByRole('searchbox', { name: 'Search and Explore' });
 
-    this.exploreButton    = page.getByRole('button', { name: 'Explore', exact: true });
-    this.itineraryButton  = page.getByRole('button', { name: 'Itinerary', exact: true });
-    this.myTripsButton    = page.getByRole('button', { name: 'My trips', exact: true });
-    this.startTripButton  = page.getByRole('button', { name: 'Start Trip', exact: true });
+    // Spec-compatible: role-based login link locator (works for unauthenticated checks)
+    this.loginLink    = page.getByRole('link', { name: 'Log in' });
+    // Avatar button: positive auth signal used by BDD layer
+    this.avatarButton = page.locator('.rt-top-bar-avatar-button, [data-sweetchuck-id="header__image--user-profile-auth"]').first();
 
-    this.createTripButton = page.getByRole('button', { name: 'Create a trip', exact: true });
-    this.createTripCTA    = page.locator('text=Adventure is on the horizon').locator('..');
+    this.exploreButton   = page.getByRole('button', { name: 'Explore', exact: true });
+    this.itineraryButton = page.getByRole('button', { name: 'Itinerary', exact: true });
+    this.myTripsButton   = page.getByRole('button', { name: 'My trips', exact: true });
+    this.startTripButton = page.getByRole('button', { name: 'Start Trip', exact: true });
+
+    // createTripButton: covers both the authenticated "Start Trip" toolbar button
+    // and the unauthenticated "Create a trip" CTA — whichever is present.
+    this.createTripButton = page.locator([
+      '[data-sweetchuck-id="map-action-bar__button--add-waypoint"]',
+      'button:has-text("Start Trip")',
+      'button:has-text("Create a trip")',
+      'button:has-text("New trip")',
+    ].join(', ')).first();
+    this.createTripCTA = page.locator('text=Adventure is on the horizon').locator('..');
   }
 
-  // ─── Navigation ───────────────────────────────────────────────────────────
+  // ─── Navigation ──────────────────────────────────────────────────────────
 
   async navigate(): Promise<this> {
     await this.goto('/');
@@ -54,17 +64,10 @@ export class MapPage extends BasePage {
   }
 
   async waitForLoad(): Promise<this> {
-    // Only wait for URL navigation if we are NOT already on the map domain.
-    // waitForURL times out when the URL already matches at call time in some
-    // browser/Playwright combinations (notably Firefox).
     const alreadyOnMap = /maps\.roadtrippers\.com/.test(this.page.url());
     if (!alreadyOnMap) {
       await this.page.waitForURL(/maps\.roadtrippers\.com/, { timeout: 30_000 });
     }
-
-    // Wait for a visible UI element — canvas, create-trip button, login link,
-    // or search box — whichever appears first. This replaces waitForFunction
-    // which is less reliable across browsers.
     const canvas      = this.page.locator('canvas.mapboxgl-canvas').first();
     const createTrip  = this.createTripButton;
     const loginLink   = this.loginLink;
@@ -76,7 +79,6 @@ export class MapPage extends BasePage {
       loginLink.waitFor({ state: 'visible', timeout: 20_000 }),
       searchInput.waitFor({ state: 'visible', timeout: 20_000 }),
     ]).catch(async () => {
-      // Final fallback: assert at least one element is visible
       const hasFallbackUi =
         await canvas.isVisible().catch(() => false) ||
         await createTrip.isVisible().catch(() => false) ||
@@ -84,14 +86,39 @@ export class MapPage extends BasePage {
         await searchInput.isVisible().catch(() => false);
       expect(hasFallbackUi).toBe(true);
     });
-
     return this;
   }
 
-  // ─── Actions ──────────────────────────────────────────────────────────────
+  /**
+   * Waits for the SPA to fully resolve auth state.
+   * Used by the BDD layer only — spec tests don't need this.
+   * Polls for the avatar button (positive auth signal) up to 15 s.
+   */
+  async waitForAuthState(): Promise<void> {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      if (await this.avatarButton.isVisible().catch(() => false)) return;
+      await this.page.waitForTimeout(300);
+    }
+  }
+
+  // ─── Actions ─────────────────────────────────────────────────────────────
 
   async clickCreateTrip(): Promise<this> {
-    await this.safeClick(this.createTripButton);
+    // Remove Gist/chat widget that intercepts pointer events over the toolbar.
+    // Target both the generic id*="gist" pattern AND the specific overlay IDs
+    // (#gist-overlay, #gist-embed-message) confirmed in failure logs.
+    await this.page.evaluate(() => {
+      document.querySelectorAll(
+        '#gist-overlay, #gist-embed-message, [id*="gist"], iframe[src*="gist.build"], [class*="gist-visible"], #x-gist-floating-bottom'
+      ).forEach(el => el.remove());
+    }).catch(() => {});
+
+    // Brief settle — let the DOM repaint after overlay removal
+    await this.page.waitForTimeout(300);
+
+    // Always use force: true — avoids timeout if any residual overlay remains
+    await this.createTripButton.click({ force: true });
     return this;
   }
 
@@ -115,22 +142,21 @@ export class MapPage extends BasePage {
     return this;
   }
 
-  // ─── Assertions ───────────────────────────────────────────────────────────
+  // ─── Assertions ──────────────────────────────────────────────────────────
 
   async assertMapIsLoaded(): Promise<void> {
     await expect(this.page).toHaveURL(/maps\.roadtrippers\.com/, { timeout: 10_000 });
     const canvas = this.page.locator('canvas.mapboxgl-canvas').first();
     const hasCanvas = await canvas.waitFor({ state: 'visible', timeout: 20_000 })
-      .then(() => true)
-      .catch(() => false);
+      .then(() => true).catch(() => false);
     if (!hasCanvas) {
       await expect(this.createTripButton.or(this.loginLink)).toBeVisible({ timeout: 10_000 });
     }
   }
 
   async assertIsAuthenticated(): Promise<void> {
-    // Authenticated state: "Log in" link is NOT visible
-    await expect(this.loginLink).not.toBeVisible({ timeout: 8_000 });
+    // Spec tests use the avatar button as the positive auth signal
+    await expect(this.avatarButton).toBeVisible({ timeout: 15_000 });
     await expect(this.page.url()).not.toContain('/login');
   }
 
@@ -142,10 +168,11 @@ export class MapPage extends BasePage {
     await expect(this.createTripButton).toBeVisible({ timeout: 10_000 });
   }
 
-  // ─── State queries ─────────────────────────────────────────────────────────
+  // ─── State queries ────────────────────────────────────────────────────────
 
   async isAuthenticated(): Promise<boolean> {
-    return !(await this.loginLink.isVisible());
+    // Used by spec tests — checks avatar button (positive signal)
+    return this.avatarButton.isVisible().catch(() => false);
   }
 
   async isMapLoaded(): Promise<boolean> {

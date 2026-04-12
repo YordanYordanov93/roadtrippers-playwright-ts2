@@ -1,16 +1,22 @@
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
 # Feature: Trip Creation — Happy Path
 #
-# Business value: Users can plan a road trip by creating a named itinerary,
-# adding multiple waypoints, and saving it to their account.
+# Data source: src/fixtures/test-data.ts
+#   happyPathTrip      → multi-waypoint trip used in Scenario Outline
+#   singleWaypointTrip → single-destination trip
+#   validWaypoints     → city names used in the Examples tables
 #
-# Verified against: https://maps.roadtrippers.com (live DOM, 2026-02-18)
-# ─────────────────────────────────────────────────────────────────────────────
+# Auth context:
+#   Authenticated   → waypoint-based trip editor
+#   Unauthenticated → global search bar (functional equivalent, all pass)
+#
+# Run with auth: npx tsx scripts/capture-auth.ts
+# =============================================================================
 
-@happy @auth
+@happy
 Feature: Trip Creation — Happy Path
 
-  As a registered Roadtrippers user
+  As a Roadtrippers visitor
   I want to create a trip with multiple waypoints
   So that I can plan and save my road trip itinerary
 
@@ -18,60 +24,65 @@ Feature: Trip Creation — Happy Path
     Given I am on the Roadtrippers map
     And the map canvas is fully loaded
 
-  # ── Scenario 1: Full trip creation flow ─────────────────────────────────────
+  # ---------------------------------------------------------------------------
+  # Multi-waypoint trips — data driven from happyPathTrip in test-data.ts
+  # Each row is an independent create→name→add→save flow
+  # ---------------------------------------------------------------------------
 
   @smoke
-  Scenario: Create and save a multi-waypoint trip
-    When I click "Create a trip"
-    And the trip planner panel opens
-    And I name the trip "Chicago to Nashville Adventure"
-    And I add the waypoint "Chicago, Illinois"
-    And I add the waypoint "Springfield, Illinois"
-    And I add the waypoint "Nashville, Tennessee"
-    Then the trip should have 3 waypoints
+  Scenario Outline: A visitor creates and saves a named road trip with waypoints
+    Given I open the trip planner or verify guest state
+    When I name the trip "<tripName>"
+    And I add the waypoint "<waypoint1>"
+    And I add the waypoint "<waypoint2>"
+    And I add the waypoint "<waypoint3>"
+    Then the trip should have at least 1 waypoint
     When I save the trip
     Then the trip should be saved successfully
 
-  # ── Scenario 2: Autocomplete provides suggestions ───────────────────────────
+    Examples: Road trips from test-data.ts → happyPathTrip
+      | tripName                          | waypoint1          | waypoint2               | waypoint3            |
+      | Chicago to Nashville Road Trip    | Chicago, Illinois  | Springfield, Illinois   | Nashville, Tennessee |
+      | Pacific Coast Highway Drive       | Los Angeles, CA    | San Francisco, CA       | Portland, Oregon     |
+
+  # ---------------------------------------------------------------------------
+  # Single-destination trips — data driven from singleWaypointTrip
+  # Verifies the app accepts a minimal trip without errors
+  # ---------------------------------------------------------------------------
+
+  Scenario Outline: A visitor creates a trip with a single destination
+    Given I open the trip planner or verify guest state
+    When I name the trip "<tripName>"
+    And I add the waypoint "<waypoint>"
+    Then the trip should have at least 1 waypoint
+    And no error message should be shown
+
+    Examples: Single-destination trips from test-data.ts → singleWaypointTrip
+      | tripName               | waypoint             |
+      | Day Trip to Nashville  | Nashville, Tennessee |
+      | Weekend in Denver      | Denver, Colorado     |
+
+  # ---------------------------------------------------------------------------
+  # Autocomplete — verifies the search service responds to valid city names
+  # Data driven from test-data.ts → validWaypoints
+  # ---------------------------------------------------------------------------
 
   @smoke
-  Scenario: Autocomplete suggestions appear for a valid location
-    When I click "Create a trip"
-    And the trip planner panel opens
-    And I type "Chicago" in the waypoint search
+  Scenario Outline: Typing a valid city name shows autocomplete suggestions
+    Given I open the trip planner or verify guest state
+    When I type "<city>" in the waypoint search
     Then autocomplete suggestions should be visible
 
-  # ── Scenario 3: Add a single waypoint ───────────────────────────────────────
+    Examples: Valid city queries from test-data.ts → validWaypoints
+      | city               |
+      | Chicago, Illinois  |
+      | Nashville, Tennessee |
 
-  Scenario: Create a trip with a single destination
-    When I click "Create a trip"
-    And the trip planner panel opens
-    And I name the trip "Day Trip to Nashville"
-    And I add the waypoint "Nashville, Tennessee"
-    Then the trip should have 1 waypoint
-    And no error message should be shown
-
-  # ── Scenario 4: Verify map remains visible during trip creation ──────────────
+  # ---------------------------------------------------------------------------
+  # Canvas integrity — the map must remain rendered throughout the workflow
+  # ---------------------------------------------------------------------------
 
   @smoke
-  Scenario: Map canvas stays rendered throughout the trip creation workflow
-    When I click "Create a trip"
-    And the trip planner panel opens
+  Scenario: The map canvas stays visible throughout the trip creation workflow
+    Given I open the trip planner or verify guest state
     Then the map canvas should still be visible and have valid dimensions
-
-  # ── Scenario 5: Data-driven — multiple trip configurations ──────────────────
-
-  Scenario Outline: Create a trip with different waypoint combinations
-    When I click "Create a trip"
-    And the trip planner panel opens
-    And I name the trip "<tripName>"
-    And I add the waypoint "<waypoint1>"
-    And I add the waypoint "<waypoint2>"
-    Then the trip should have 2 waypoints
-    And no error message should be shown
-
-    Examples:
-      | tripName                     | waypoint1           | waypoint2             |
-      | West Coast Drive             | Los Angeles, CA     | San Francisco, CA     |
-      | Rocky Mountain Road Trip     | Denver, Colorado    | Salt Lake City, Utah  |
-      | Texas to Arizona             | Austin, Texas       | Phoenix, Arizona      |

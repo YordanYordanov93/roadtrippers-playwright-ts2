@@ -20,26 +20,32 @@
     "bdd:happy": "cucumber-js --tags @happy",
     "bdd:edge": "cucumber-js --tags @edge",
     "bdd:error": "cucumber-js --tags @error",
-    "bdd:headed": "HEADLESS=false cucumber-js",
+    "bdd:headed": "cross-env HEADLESS=false cucumber-js",
     "bdd:report": "npx allure generate reports/allure-results --clean -o reports/allure-report && npx allure open reports/allure-report",
     "bdd:dry-run": "cucumber-js --dry-run",
-    "bdd:debug": "PWDEBUG=1 cucumber-js"
+    "bdd:debug": "cross-env PWDEBUG=1 cucumber-js",
+    "auth:export": "tsx scripts/export-cookies.ts",
+    "auth:capture": "tsx scripts/capture-auth.ts",
+    "auth:check": "node -e \"const f=require('./config/state/auth.json');const n=f.cookies&&f.cookies.length;console.log(n?'✅ auth.json has '+n+' cookies — session looks valid':'❌ auth.json is empty — run: npm run auth:export -- --help')\""
   },
   "devDependencies": {
-    "@cucumber/cucumber": "^10.3.1",
+    "@cucumber/cucumber": "^11.0.0",
     "@cucumber/pretty-formatter": "^1.0.1",
     "@playwright/test": "^1.41.0",
     "@types/node": "^20.11.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
     "allure-commandline": "^2.29.0",
-    "allure-cucumberjs": "^2.15.1",
+    "allure-cucumberjs": "^3.0.4",
+    "cross-env": "^7.0.3",
     "dotenv": "^16.4.1",
     "eslint": "^8.56.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5"
   },
   "dependencies": {
-    "askui": "^0.20.0"
+    "askui": "^0.20.0",
+    "playwright": "^1.41.0",
+    "ws": "^8.20.0"
   }
 }

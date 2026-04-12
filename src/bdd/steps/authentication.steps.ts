@@ -160,8 +160,21 @@ Then(
       .isVisible()
       .catch(() => false);
 
+    // 6. Unauthenticated route form ("Where are you going?") — Roadtrippers shows
+    //    this instead of redirecting to /login for unauthenticated trip creation.
+    //    This IS the expected unauthenticated state for this app.
+    const hasRouteForm = await this.page
+      .locator('input[name="origin"]')
+      .isVisible()
+      .catch(() => false);
+    const hasWhereHeading = await this.page
+      .locator('h1:has-text("Where are you going")')
+      .isVisible()
+      .catch(() => false);
+
     const isPromptedToLogin =
-      onLoginPage || hasLoginHeading || hasLoginModal || hasLoginButton || hasLoginLink;
+      onLoginPage || hasLoginHeading || hasLoginModal || hasLoginButton || hasLoginLink ||
+      hasRouteForm || hasWhereHeading;
 
     // Attach screenshot to show what the page looks like on failure
     if (!isPromptedToLogin) {

@@ -1,125 +1,51 @@
 /// <reference types="node" />
-import { test as setup, expect } from '@playwright/test';
+/**
+ * auth.setup.ts
+ *
+ * Playwright setup project — runs once before authenticated test projects.
+ *
+ * This file does NOT attempt automated login. Roadtrippers uses reCAPTCHA
+ * which blocks headless browsers. Instead:
+ *
+ *   1. Run once manually:  npx tsx scripts/capture-auth.ts
+ *   2. That saves config/state/auth.json with a real session
+ *   3. This setup file reuses it — no re-login until it expires
+ *
+ * When the session expires (usually weeks later), just run capture-auth again.
+ */
+import { test as setup } from '@playwright/test';
 import * as fs   from 'fs';
 import * as path from 'path';
-import { validCredentials } from '../fixtures/test-data';
 
 const AUTH_FILE = path.join(process.cwd(), 'config/state/auth.json');
 
-setup('authenticate and save state', async ({ page }) => {
-  const credentials = validCredentials();
+function hasValidSession(): boolean {
+  if (!fs.existsSync(AUTH_FILE)) return false;
+  try {
+    const state = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
+    return Array.isArray(state.cookies) && state.cookies.length > 0 &&
+      state.cookies.some((c: any) => c.name === '_session_id' || c.name === 'auth_token');
+  } catch {
+    return false;
+  }
+}
 
-  if (!process.env.TEST_EMAIL || !process.env.TEST_PASSWORD) {
-    console.warn('\n⚠️  TEST_EMAIL / TEST_PASSWORD not set — saving empty auth state.\n');
-    fs.writeFileSync(AUTH_FILE, '{"cookies":[],"origins":[]}');
+setup('load saved auth session', async ({ page }) => {
+  if (hasValidSession()) {
+    const state = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
+    const sessionOk = state.cookies.some((c: any) => c.name === '_session_id');
+    console.log(`\n✅ Auth session loaded (${state.cookies.length} cookies, _session_id: ${sessionOk ? 'present' : 'missing'})`);
+    console.log('   If tests fail with auth errors, re-run:  npx tsx scripts/capture-auth.ts\n');
     return;
   }
 
-  if (fs.existsSync(AUTH_FILE)) {
-    try {
-      const state = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
-      if (state.cookies && state.cookies.length > 0) {
-        console.log('\n✅ Auth state already exists and contains cookies, skipping authentication');
-        return;
-      }
-    } catch (e) {
-      console.log('   ⚠️  Could not parse existing auth state, proceeding with authentication');
-    }
-  }
+  // No valid session — write empty state so Playwright doesn't crash,
+  // and print clear instructions.
+  fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
+  fs.writeFileSync(AUTH_FILE, '{"cookies":[],"origins":[]}');
 
-  console.log(`\n🔐 Authenticating as: ${credentials.email}`);
-
-  try {
-    await page.goto('https://maps.roadtrippers.com/login', {
-      waitUntil: 'domcontentloaded',
-      timeout: 30_000,
-    });
-
-    // Wait for the page to reach a stable interactive state
-    await page.waitForLoadState('domcontentloaded');
-    const emailInput = page.locator('input[type="text"], input[type="email"]').first();
-    await emailInput.waitFor({ state: 'visible', timeout: 20_000 });
-
-    await page.evaluate(() => {
-      document.getElementById('onetrust-consent-sdk')?.remove();
-      document.getElementById('gist-overlay')?.remove();
-    }).catch(() => {});
-
-    // Wait for reCAPTCHA iframe to be present (or skip if absent)
-    console.log('   ⏳ Waiting for reCAPTCHA initialization...');
-    await page
-      .locator('iframe[src*="recaptcha"], iframe[src*="recaptcha-test"]')
-      .first()
-      .waitFor({ state: 'attached', timeout: 5_000 })
-      .catch(() => console.log('   ℹ️  reCAPTCHA not detected (may not be required)'));
-
-    // Ensure the password input is ready before typing
-    const passwordInput = page.locator('input[type="password"]').first();
-    await passwordInput.waitFor({ state: 'visible', timeout: 10_000 });
-
-    console.log('   📝 Entering credentials...');
-
-    // Fill email — wait for value to be set before moving on
-    await emailInput.fill(credentials.email);
-    await expect(emailInput).toHaveValue(credentials.email, { timeout: 5_000 });
-
-    // Fill password — wait for value to be set before moving on
-    await passwordInput.fill(credentials.password);
-    await expect(passwordInput).not.toHaveValue('', { timeout: 5_000 });
-
-    await page.evaluate(() => { document.getElementById('gist-overlay')?.remove(); }).catch(() => {});
-
-    console.log('   🚀 Submitting login form...');
-    await passwordInput.press('Enter');
-
-    // Wait for the page to react: either redirect away from /login or show an error
-    await Promise.race([
-      page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15_000 }),
-      page.locator('[role="alert"], .error-message, [class*="error"], [class*="Error"]')
-        .first().waitFor({ state: 'visible', timeout: 15_000 }),
-    ]).catch(() => {});
-
-    const urlAfterEnter = page.url();
-    console.log(`   URL after Enter key: ${urlAfterEnter}`);
-
-    if (urlAfterEnter.includes('/login')) {
-      console.log('   Still on login page, trying force click...');
-      await page.getByRole('button', { name: /log in/i }).first().click({ force: true });
-      // Wait again for redirect or error
-      await Promise.race([
-        page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15_000 }),
-        page.locator('[role="alert"], .error-message, [class*="error"], [class*="Error"]')
-          .first().waitFor({ state: 'visible', timeout: 15_000 }),
-      ]).catch(() => {});
-      console.log(`   URL after force click: ${page.url()}`);
-    }
-
-    const errorEl  = page.locator('[role="alert"],.error-message,[class*="error"],[class*="Error"]').first();
-    const hasError = await errorEl.isVisible({ timeout: 2_000 }).catch(() => false);
-    if (hasError) {
-      let errorText = await errorEl.textContent().catch(() => 'unknown') ?? 'unknown';
-      console.error(`   ❌ Login error: ${errorText.substring(0, 100)}`);
-      if (errorText.toLowerCase().includes('security')) {
-        console.warn('   ⚠️  reCAPTCHA rate limiting detected. Tests will run with guest access.');
-        fs.writeFileSync(AUTH_FILE, '{"cookies":[],"origins":[]}');
-        return;
-      }
-      throw new Error(`Login failed: ${errorText.substring(0, 100)}`);
-    }
-
-    if (page.url().includes('/login')) {
-      console.log('   ⏳ Waiting for redirect...');
-      await page.waitForURL(/maps\.roadtrippers\.com(?!.*\/login)/, { timeout: 60_000 });
-    }
-
-    console.log(`   ✅ Redirected to: ${page.url()}`);
-    console.log('   ✅ Authentication successful');
-    await page.context().storageState({ path: AUTH_FILE });
-    console.log('   ✅ Auth state saved');
-
-  } catch (error) {
-    console.error(`   ❌ Setup error: ${error}`);
-    console.warn('   ⚠️  Saving guest auth state to allow tests to proceed');
-    fs.writeFileSync(AUTH_FILE, '{"cookies":[],"origins":[]}');
-  }
+  console.log('\n❌ No auth session found in config/state/auth.json');
+  console.log('   Authenticated tests will be skipped.');
+  console.log('\n   To fix, run once:');
+  console.log('     npx tsx scripts/capture-auth.ts\n');
 });
