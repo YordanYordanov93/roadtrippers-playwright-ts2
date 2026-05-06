@@ -1,10 +1,10 @@
-# Feature: Trip Management — Map Controls
+# Feature: Trip Management & Validation
 #
-# Toolbar navigation and search work for all visitors — no auth needed.
-# These scenarios always run and always pass.
+# Toolbar navigation and search work for all visitors (no auth needed).
+# Trip planner scenarios skip gracefully when not authenticated.
 
 @happy
-Feature: Trip Management — Map Controls
+Feature: Trip Management & Validation
 
   As a Roadtrippers visitor
   I want the map controls to work correctly
@@ -13,6 +13,13 @@ Feature: Trip Management — Map Controls
   Background:
     Given I am on the Roadtrippers map
     And the map canvas is fully loaded
+
+  @error
+  Scenario: Attempting to save a trip with no waypoints shows a validation error
+    Given I open the trip planner or verify guest state
+    When I name the trip "Empty Waypoints Trip"
+    And I click the save button without adding waypoints
+    Then a validation error should appear or the save button should be disabled
 
   @smoke
   Scenario: All toolbar tabs are interactive and do not break the map
@@ -33,6 +40,10 @@ Feature: Trip Management — Map Controls
     Then the map canvas should still be visible and have valid dimensions
 
   @smoke
-  Scenario: Map canvas stays rendered after navigating to trip planner
+  Scenario: Map canvas remains rendered throughout a complete trip workflow
     Given I open the trip planner or verify guest state
+    Then the map canvas should still be visible and have valid dimensions
+    When I type "Los Angeles" in the waypoint search
+    Then the map canvas should still be visible and have valid dimensions
+    When I cancel the trip creation
     Then the map canvas should still be visible and have valid dimensions
